@@ -1,5 +1,5 @@
-import 'package:can_host/models/serial_model.dart';
-import 'package:can_host/protocol/serial_protocol.dart';
+import 'package:can_host/models/can_model.dart';
+import 'package:can_host/protocol/can_protocol.dart';
 import 'package:can_host/screens/home_route.dart';
 import 'package:flutter/material.dart';
 import 'package:can_host/models/telemetry_model.dart';
@@ -22,7 +22,7 @@ class CanHostApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // declare classes for dependency injection here
-    final serialApi = SerialApi();
+    final canApi = CANApi();
     final configData = ConfigData();
 
     return MultiProvider(
@@ -30,15 +30,15 @@ class CanHostApp extends StatelessWidget {
         ChangeNotifierProvider<ScreenModel>(
             create: (context) => ScreenModel()),
         ChangeNotifierProvider<TelemetryModel>(
-            create: (context) => TelemetryModel(serialApi, configData)),
+            create: (context) => TelemetryModel(canApi, configData)),
         ChangeNotifierProvider<ParameterTableModel>(
             create: (context) => ParameterTableModel(configData)),
         ChangeNotifierProvider<FileModel>(
-            create: (context) => FileModel(serialApi, configData)),
+            create: (context) => FileModel(canApi, configData)),
         ChangeNotifierProvider<ParameterTableModel>(
             create: (context) => ParameterTableModel(configData)),
         ChangeNotifierProvider<CanModel>(
-            create: (context) => CanModel(serialApi, configData)),
+            create: (context) => CanModel(canApi, configData)),
       ],
       child: MaterialApp(
         title: 'Serial Host',

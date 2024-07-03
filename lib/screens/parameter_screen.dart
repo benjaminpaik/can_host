@@ -1,4 +1,4 @@
-import 'package:can_host/models/serial_model.dart';
+import 'package:can_host/models/can_model.dart';
 import 'package:can_host/widgets/message_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

@@ -6,17 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:yaml/yaml.dart';
 
 import '../misc/file_utilities.dart';
-import '../protocol/serial_protocol.dart';
+import '../protocol/can_protocol.dart';
 
 class FileModel extends ChangeNotifier {
 
-  final SerialApi _serial;
+  final CANApi _can;
   final ConfigData _configData;
 
   bool _saveByteFile = false;
   String _userMessage = "";
 
-  FileModel(this._serial, this._configData);
+  FileModel(this._can, this._configData);
 
   set saveByteFile(bool save) {
     _saveByteFile = save;
@@ -28,13 +28,13 @@ class FileModel extends ChangeNotifier {
   }
 
   void recordButtonEvent(void Function() onComplete) {
-    switch (_serial.recordState) {
+    switch (_can.recordState) {
       case (RecordState.fileReady):
-        _serial.recordState = RecordState.inProgress;
+        _can.recordState = RecordState.inProgress;
         break;
 
       case (RecordState.inProgress):
-        _serial.recordState = RecordState.disabled;
+        _can.recordState = RecordState.disabled;
         parseDataFile(false, onComplete);
         break;
 
@@ -44,7 +44,7 @@ class FileModel extends ChangeNotifier {
   }
 
   RecordState get recordState {
-    return _serial.recordState;
+    return _can.recordState;
   }
 
   Future<void> openConfigFile(void Function(bool success) onComplete) async {
@@ -81,10 +81,10 @@ class FileModel extends ChangeNotifier {
     receivePort.listen((message) {
       if (message is String) {
         if (message.isNotEmpty) {
-          _serial.dataFile = message;
-          _serial.recordState = RecordState.fileReady;
+          _can.dataFile = message;
+          _can.recordState = RecordState.fileReady;
         } else {
-          _serial.recordState = RecordState.disabled;
+          _can.recordState = RecordState.disabled;
         }
         notifyListeners();
       }
@@ -114,7 +114,7 @@ class FileModel extends ChangeNotifier {
     });
     await Isolate.spawn(parseDataFileIsolate, receivePort.sendPort);
     SendPort sendPort = await completer.future;
-    sendPort.send(fileSelection ? "" : _serial.dataFile);
+    sendPort.send(fileSelection ? "" : _can.dataFile);
     sendPort.send(saveByteFile);
     sendPort.send(_configData.toMap());
   }

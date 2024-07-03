@@ -8,7 +8,7 @@ import 'package:can_host/misc/parameter.dart';
 import 'package:can_host/misc/telemetry.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:can_host/protocol/serial_parse.dart';
+import 'package:can_host/protocol/can_definitions.dart';
 
 const newline = "\n";
 const indent = "  ";
@@ -123,11 +123,23 @@ String generateConfigFile(ConfigData configData) {
   String inputText = "--- ${newline * 2}";
   inputText += "# ${DateTime.now().toString()}${newline * 2}";
 
-  // add serial data
-  inputText += "${ConfigKeys.serial.name}: $newline";
-  inputText += "$indent${ConfigSerialKeys.baud.name}: ${configData.baudRate} $newline";
-  inputText += "$indent${ConfigSerialKeys.period.name}: ${configData.commPeriod} $newline";
-  inputText += "$indent${ConfigSerialKeys.device.name}: ${configData.deviceId} $newline";
+  // add CAN data
+  inputText += "${ConfigKeys.can.name}: $newline";
+  inputText +=
+      "$indent${ConfigCanKeys.baud.name}: ${configData.baudRate} $newline";
+  inputText +=
+      "$indent${ConfigCanKeys.period.name}: ${configData.commPeriod} $newline";
+  inputText +=
+  "$indent${ConfigCanKeys.hostId.name}: ${configData.hostId} $newline";
+  inputText +=
+      "$indent${ConfigCanKeys.deviceId.name}: ${configData.deviceId} $newline";
+  inputText +=
+  "$indent${ConfigCanKeys.stateSelect.name}: $newline";
+  final stateSelection = configData.stateSelect.toList();
+  stateSelection.sort();
+  for (int i = 0; i < stateSelection.length; i++) {
+    inputText += "${indent * 2}- ${stateSelection[i]} $newline";
+  }
   inputText += newline;
 
   // add command data
@@ -137,9 +149,8 @@ String generateConfigFile(ConfigData configData) {
   inputText +=
       "$indent${ConfigCommandKeys.min.name}: ${configData.commandMin} $newline";
   inputText += "$indent${ConfigCommandKeys.modes.name}: $newline";
-
   for (int i = 0; i < configData.modes.length; i++) {
-    inputText += "$indent- ${configData.modes[i]} $newline";
+    inputText += "${indent * 2}- ${configData.modes[i]} $newline";
   }
   inputText += newline;
 
@@ -256,8 +267,8 @@ class DataRowIterator implements Iterator<String> {
       if (rawDataRow.isNotEmpty) {
         rawDataRow = rawDataRow.substring(1, rawDataRow.length - 1);
         final bytes = rawDataRow.split(',').map((e) => int.parse(e)).toList();
-        final timeCurrent = ((bytes[SerialParse.timestamp0Index] & 0xFF) << 8) |
-            (bytes[SerialParse.timestamp1Index] & 0xFF);
+        final timeCurrent = ((bytes[CanRxIndices.timestamp0] & 0xFF) << 8) |
+            (bytes[CanRxIndices.timestamp1] & 0xFF);
         final timeDiff = parseTimeDiff(timeCurrent, _timePrevious);
         _timePrevious = timeCurrent;
         _timeStamp += timeDiff;
@@ -285,7 +296,7 @@ int parseTimeDiff(int timeCurrent, int timePrevious) {
   if (timeCurrent >= timePrevious) {
     timeDiff = timeCurrent - timePrevious;
   } else {
-    timeDiff = timeCurrent + (SerialParse.timestampRollover - timePrevious);
+    timeDiff = timeCurrent + (CanInfo.timestampRollover - timePrevious);
   }
   return timeDiff;
 }
@@ -300,7 +311,7 @@ String parseDataRow(
 
   // convert a row of bytes into 32-bit integers
   for (int i = 0; i < configData.telemetry.length; i++) {
-    int startIndex = SerialParse.dataStartIndex + (4 * stateIndex);
+    int startIndex = CanRxIndices.data.value + (4 * stateIndex);
     // parse bytes
     byteData.setUint8(0, bytes[startIndex]);
     byteData.setUint8(1, bytes[startIndex + 1]);
@@ -314,9 +325,9 @@ String parseDataRow(
     }
     ++stateIndex;
   }
-  // add the timestamp, network ID, and command mode
+  // add the timestamp, device ID, and command mode
   rowText =
-      "$timeStamp, ${bytes[SerialParse.deviceIndex]}, ${bytes[SerialParse.commandModeIndex]}, ";
+      "$timeStamp, ${bytes[CanRxIndices.canId.value]}, ${bytes[CanRxIndices.mode]}, ";
 
   for (int i = 0; i < configData.telemetry.length; i++) {
     rowText += "${stateValues[i]}, ";

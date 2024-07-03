@@ -2,12 +2,12 @@ import 'package:flutter/services.dart';
 import 'package:can_host/misc/file_utilities.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:can_host/models/serial_model.dart';
+import 'package:can_host/models/can_model.dart';
 
 import '../models/file_model.dart';
 import '../models/telemetry_model.dart';
 import '../models/parameter_table_model.dart';
-import '../protocol/serial_parse.dart';
+import '../protocol/can_definitions.dart';
 import 'message_widget.dart';
 
 const _verticalPadding = 8.0;
@@ -22,13 +22,13 @@ class TopBar extends StatelessWidget {
     final telemetryModel = Provider.of<TelemetryModel>(context, listen: false);
     final parameterTableModel =
         Provider.of<ParameterTableModel>(context, listen: false);
-    final serialModel = Provider.of<CanModel>(context, listen: false);
+    final canModel = Provider.of<CanModel>(context, listen: false);
 
     final openFileMenuItem = MenuItemButton(
         onPressed: () {
           fileModel.openConfigFile((bool success) {
             if (success) {
-              serialModel.updateFromConfig();
+              canModel.updateFromConfig();
               telemetryModel.updatePlotDataFromConfig();
               parameterTableModel.initRows();
             }
@@ -58,7 +58,7 @@ class TopBar extends StatelessWidget {
 
     final createDataFileMenuItem = MenuItemButton(
       onPressed: () {
-        if (serialModel.isRunning) {
+        if (canModel.isRunning) {
           fileModel.createDataFile();
         }
       },
@@ -108,8 +108,7 @@ class TopBar extends StatelessWidget {
       },
       shortcut: const SingleActivator(LogicalKeyboardKey.keyH, control: true),
       child: Selector<TelemetryModel, bool>(
-        selector: (_, selectorModel) =>
-        selectorModel.telemetry.isNotEmpty,
+        selector: (_, selectorModel) => selectorModel.telemetry.isNotEmpty,
         builder: (context, fileLoaded, child) {
           return Text(
             "create header",
@@ -123,9 +122,9 @@ class TopBar extends StatelessWidget {
 
     final programTargetMenuItem = MenuItemButton(
       onPressed: () {
-        serialModel.initBootloader().then((_) {
-          displayMessage(context, serialModel.userMessage);
-          serialModel.serialConnect();
+        canModel.initBootloader().then((_) {
+          displayMessage(context, canModel.userMessage);
+          canModel.canConnect();
         });
       },
       shortcut: const SingleActivator(LogicalKeyboardKey.keyP, control: true),
@@ -145,9 +144,29 @@ class TopBar extends StatelessWidget {
       programTargetMenuItem,
     ];
 
-    const comPortLabel = Padding(
+    final hostIdLabel = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 18.0),
+      child: Selector<CanModel, int>(
+        selector: (_, model) => model.hostId,
+        builder: (context, recordState, child) {
+          return Text("Host ID: ${canModel.hostId}");
+        },
+      ),
+    );
+
+    final deviceIdLabel = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 18.0),
+      child: Selector<CanModel, int>(
+        selector: (_, model) => model.deviceId,
+        builder: (context, recordState, child) {
+          return Text("Device ID: ${canModel.deviceId}");
+        },
+      ),
+    );
+
+    const canChannelLabel = Padding(
       padding: EdgeInsets.all(8.0),
-      child: Text("Port: "),
+      child: Text("Channel: "),
     );
 
     final recordButton = Selector<FileModel, RecordState>(
@@ -163,19 +182,19 @@ class TopBar extends StatelessWidget {
       },
     );
 
-    final comPortInput = Padding(
+    final canChannelInput = Padding(
       padding: const EdgeInsets.symmetric(
           vertical: _verticalPadding, horizontal: _horizontalPadding),
       child: Selector<CanModel, String?>(
-        selector: (_, selectorModel) => selectorModel.comSelection,
+        selector: (_, model) => "${model.channelSelection}${model.numChannels}",
         builder: (context, _, child) {
           return DropdownButton(
-            value: serialModel.comSelection,
-            items: serialModel.comPorts
+            value: canModel.channelSelection,
+            items: canModel.canChannels
                 .map((item) => DropdownMenuItem(value: item, child: Text(item)))
                 .toList(),
             onChanged: (String? comSelection) {
-              serialModel.comSelection = comSelection;
+              canModel.channelSelection = comSelection;
             },
           );
         },
@@ -195,14 +214,14 @@ class TopBar extends StatelessWidget {
         selector: (_, selectorModel) => selectorModel.baudRate,
         builder: (context, _, child) {
           return DropdownButton(
-            value: serialModel.baudRate,
-            items: SerialParse.validBaudRates
+            value: canModel.baudRate,
+            items: validBaudRates
                 .map((item) =>
                     DropdownMenuItem(value: item, child: Text(item.toString())))
                 .toList(),
             onChanged: (int? baudRate) {
               if (baudRate != null) {
-                serialModel.baudRate = baudRate;
+                canModel.baudRate = baudRate;
               }
             },
           );
@@ -216,8 +235,8 @@ class TopBar extends StatelessWidget {
       child: Text("Tx Period: "),
     );
 
-    final periodTextController = TextEditingController(
-        text: serialModel.commPeriod.toString());
+    final periodTextController =
+        TextEditingController(text: canModel.commPeriod.toString());
 
     final periodInput = Padding(
       padding: const EdgeInsets.symmetric(
@@ -234,44 +253,9 @@ class TopBar extends StatelessWidget {
               onSubmitted: (text) {
                 int? value = int.tryParse(text);
                 if (value != null) {
-                  serialModel.commPeriod = value;
-                  periodTextController.text =
-                      serialModel.commPeriod.toString();
+                  canModel.commPeriod = value;
+                  periodTextController.text = canModel.commPeriod.toString();
                 }
-              },
-            ),
-          );
-        },
-      ),
-    );
-
-    const deviceIdLabel = Padding(
-      padding: EdgeInsets.symmetric(
-          vertical: _verticalPadding, horizontal: _horizontalPadding),
-      child: Text("Device ID: "),
-    );
-
-    final deviceIdTextController =
-        TextEditingController(text: serialModel.deviceId.toString());
-
-    final deviceIdInput = Padding(
-      padding: const EdgeInsets.symmetric(
-          vertical: _verticalPadding, horizontal: _horizontalPadding),
-      child: Selector<CanModel, int>(
-        selector: (_, selectorModel) => selectorModel.deviceId,
-        builder: (context, deviceId, child) {
-          deviceIdTextController.text = deviceId.toString();
-          return SizedBox(
-            height: 35.0,
-            width: 25.0,
-            child: TextField(
-              controller: deviceIdTextController,
-              onSubmitted: (text) {
-                if (serialModel.setDeviceId(int.tryParse(text))) {
-                  deviceIdTextController.text =
-                      serialModel.deviceId.toString();
-                }
-                displayMessage(context, serialModel.userMessage);
               },
             ),
           );
@@ -286,19 +270,13 @@ class TopBar extends StatelessWidget {
         width: 120.0,
         child: ElevatedButton(
           child: Selector<CanModel, bool>(
-            selector: (_, serialModel) => serialModel.isRunning,
+            selector: (_, model) => model.isRunning,
             builder: (context, isRunning, child) {
               return Text(isRunning ? "Disconnect" : "Connect");
             },
           ),
           onPressed: () {
-            serialModel.serialConnect().then((success) {
-              if (success) {
-                parameterTableModel.updateTable();
-                telemetryModel.startPlots();
-              }
-              displayMessage(context, serialModel.userMessage);
-            });
+            canModel.canConnect();
           },
         ),
       ),
@@ -315,14 +293,14 @@ class TopBar extends StatelessWidget {
           recordButton,
         ]),
         const Spacer(),
-        comPortLabel,
-        comPortInput,
+        hostIdLabel,
+        deviceIdLabel,
+        canChannelLabel,
+        canChannelInput,
         baudRateLabel,
         baudRateInput,
         periodLabel,
         periodInput,
-        deviceIdLabel,
-        deviceIdInput,
         connectButton,
       ],
     );

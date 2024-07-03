@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:can_host/misc/telemetry.dart';
 import 'package:can_host/widgets/oscilloscope_widget.dart';
 
-import '../protocol/serial_parse.dart';
-import '../protocol/serial_protocol.dart';
+import '../protocol/can_definitions.dart';
+import '../protocol/can_protocol.dart';
 
 const _textUpdateIntervalMs = 250;
 const _plotUpdateIntervalMs = 50;
@@ -13,17 +13,16 @@ const _plotTimeSpan = 5.0;
 const _maxDataPoints = (_plotTimeSpan * 1000 / _plotUpdateIntervalMs);
 
 class TelemetryModel extends ChangeNotifier {
-
   int _startTime = 0,
       _graphUpdateCount = 0,
       _textUpdateCount = 0,
       _statusPrevious = -1;
 
-  final SerialApi _serial;
+  final CANApi _can;
   final ConfigData _configData;
   final _plotData = PlotData([], ySegments: 8, backgroundColor: Colors.black);
 
-  TelemetryModel(this._serial, this._configData) {
+  TelemetryModel(this._can, this._configData) {
     // initialize the start time and start the timer
     _startTime = DateTime.now().millisecondsSinceEpoch;
     Timer.periodic(
@@ -36,19 +35,26 @@ class TelemetryModel extends ChangeNotifier {
   }
 
   void _timerCallback(Timer t) {
-    if (_serial.isRunning && SerialParse.getCommandMode(_serial) < SerialParse.readParameters) {
+    if (_can.isRunning && _can.rx.mode < CanModes.telemetrySelectMode) {
       final currentTime = DateTime.now().millisecondsSinceEpoch;
       final elapsedTime = (currentTime - _startTime).toDouble() / 1000.0;
-      for (int i = 0; i < _plotData.curves.length; i++) {
-        _configData.telemetry[i].setBitValue(SerialParse.getData32(_serial, i));
+
+      int i = 0;
+      for (int canIndex in _can.tx.enabledStates) {
+        _configData.telemetry[i].setBitValue(_can.rx.stateValues[canIndex]);
         _plotData.curves[i].value = _configData.telemetry[i].value;
-        _plotData.curves[i].updateTimeScaling(_maxDataPoints.toInt(), _plotTimeSpan);
+        _plotData.curves[i]
+            .updateTimeScaling(_maxDataPoints.toInt(), _plotTimeSpan);
+        i++;
       }
+
       _plotData.updateSamples(elapsedTime);
       if ((_graphUpdateCount++) %
-          (_textUpdateIntervalMs / _plotUpdateIntervalMs) == 0) {
+              (_textUpdateIntervalMs / _plotUpdateIntervalMs) ==
+          0) {
         ++_textUpdateCount;
       }
+      // detectCanChannels();
       notifyListeners();
     }
   }
@@ -57,14 +63,13 @@ class TelemetryModel extends ChangeNotifier {
     final telemetry = _configData.telemetry;
     _plotData.curves = List.generate(
         telemetry.length,
-            (i) => PlotCurve(
-            telemetry[i].name, telemetry[i].max, telemetry[i].min,
+        (i) => PlotCurve(telemetry[i].name, telemetry[i].max, telemetry[i].min,
             color: telemetry[i].color)
           ..displayed = telemetry[i].display);
     // set the selected oscilloscope state to the first state displayed
     _plotData.selectedState = _plotData.curves
         .firstWhere((element) => element.displayed,
-        orElse: () => _plotData.curves.first)
+            orElse: () => _plotData.curves.first)
         .name;
     _loadTelemetryTable();
   }
@@ -104,8 +109,8 @@ class TelemetryModel extends ChangeNotifier {
 
   set statusState(String? state) {
     if (state != null) {
-      for(int i = 0; i < _configData.telemetry.length; i++) {
-        if(state == _configData.telemetry[i].name) {
+      for (int i = 0; i < _configData.telemetry.length; i++) {
+        if (state == _configData.telemetry[i].name) {
           _configData.status.stateName = state;
           _configData.status.stateIndex = i;
         }
@@ -120,8 +125,9 @@ class TelemetryModel extends ChangeNotifier {
 
   bool get statusChanged {
     bool changed = false;
-    if(_configData.telemetry.isNotEmpty) {
-      final status = _configData.telemetry[_configData.status.stateIndex].value.toInt();
+    if (_configData.telemetry.isNotEmpty) {
+      final status =
+          _configData.telemetry[_configData.status.stateIndex].value.toInt();
       changed = (status != _statusPrevious);
       _configData.status.value = status;
       _statusPrevious = status;
@@ -135,5 +141,4 @@ class TelemetryModel extends ChangeNotifier {
     }
     notifyListeners();
   }
-
 }

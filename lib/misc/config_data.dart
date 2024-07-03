@@ -3,20 +3,22 @@ import 'dart:typed_data';
 import 'package:can_host/misc/parameter.dart';
 import 'package:can_host/misc/telemetry.dart';
 
-import '../protocol/serial_parse.dart';
+import '../protocol/can_definitions.dart';
 
 enum ConfigKeys {
-  serial,
+  can,
   command,
   telemetry,
   status,
   parameters,
 }
 
-enum ConfigSerialKeys {
+enum ConfigCanKeys {
   baud,
   period,
-  device,
+  hostId,
+  deviceId,
+  stateSelect,
 }
 
 enum ConfigCommandKeys {
@@ -32,18 +34,20 @@ enum ConfigParameterKeys {
 }
 
 class ConfigData {
-  int _baudRate = SerialParse.defaultBaudRate,
-      _commPeriod = SerialParse.defaultPeriod,
-      _deviceId = SerialParse.deviceIdMin,
+  int _baudRate = CanInfo.defaultBaudRate,
+      _commPeriod = CanInfo.defaultPeriod,
+      _hostId = 0,
+      _deviceId = 0,
       _commandMax = 1000,
       _commandMin = -1000;
+  var stateSelect = <int>{};
   List<String> modes = List.empty(growable: true);
   List<Telemetry> telemetry = List.empty(growable: true);
   BitStatus status = BitStatus();
   List<Parameter> parameter = List.empty(growable: true);
 
   set baudRate(int value) {
-    if (SerialParse.validBaudRates.contains(value)) {
+    if (validBaudRates.contains(value)) {
       _baudRate = value;
     } else {
       throw FormatException;
@@ -55,7 +59,7 @@ class ConfigData {
   }
 
   set commPeriod(int value) {
-    if (value >= SerialParse.defaultPeriod) {
+    if (value >= CanInfo.defaultPeriod) {
       _commPeriod = value;
     } else {
       throw FormatException;
@@ -67,15 +71,27 @@ class ConfigData {
   }
 
   set deviceId(int id) {
-    if (id >= SerialParse.deviceIdMin && id <= SerialParse.deviceIdMax) {
-      _deviceId = id;
+    if (id > CanInfo.standardIdMax || id < CanInfo.standardIdMin) {
+      throw Exception();
     } else {
-      throw FormatException;
+      _deviceId = id;
     }
   }
 
   int get deviceId {
     return _deviceId;
+  }
+
+  set hostId(int id) {
+    if (id > CanInfo.standardIdMax || id < CanInfo.standardIdMin) {
+      throw Exception();
+    } else {
+      _hostId = id;
+    }
+  }
+
+  int get hostId {
+    return _hostId;
   }
 
   void setRange(int max, int min) {
@@ -98,7 +114,9 @@ class ConfigData {
   void updateFromNewConfig(ConfigData newConfig) {
     _baudRate = newConfig.baudRate;
     _commPeriod = newConfig._commPeriod;
+    _hostId = newConfig._hostId;
     _deviceId = newConfig._deviceId;
+    stateSelect = newConfig.stateSelect;
     _commandMax = newConfig.commandMax;
     _commandMin = newConfig.commandMin;
     modes = newConfig.modes;
@@ -117,11 +135,12 @@ class ConfigData {
   }
 
   Map toMap() {
-
-    final serialMap = {
-      ConfigSerialKeys.baud.name: baudRate,
-      ConfigSerialKeys.period.name: _commPeriod,
-      ConfigSerialKeys.device.name: _deviceId,
+    final canMap = {
+      ConfigCanKeys.baud.name: baudRate,
+      ConfigCanKeys.period.name: _commPeriod,
+      ConfigCanKeys.hostId.name: _hostId,
+      ConfigCanKeys.deviceId.name: _deviceId,
+      ConfigCanKeys.stateSelect.name: stateSelect,
     };
 
     final commandMap = {
@@ -143,7 +162,7 @@ class ConfigData {
     });
 
     return {
-      ConfigKeys.serial.name: serialMap,
+      ConfigKeys.can.name: canMap,
       ConfigKeys.command.name: commandMap,
       ConfigKeys.telemetry.name: telemetryList,
       ConfigKeys.status.name: status.toMap(),
@@ -153,49 +172,63 @@ class ConfigData {
   static ConfigData fromMap(Map configMap) {
     final configData = ConfigData();
 
-    // parse serial settings
-    var serialMap = configMap[ConfigKeys.serial.name];
+    // parse CAN settings
+    var canMap = configMap[ConfigKeys.can.name];
     try {
-      serialMap = serialMap as Map;
-    }
-    catch(e) {
-      throw const FormatException("invalid serial settings");
+      canMap = canMap as Map;
+    } catch (e) {
+      throw const FormatException("invalid CAN settings");
     }
 
     try {
-      final baudRate = serialMap[ConfigSerialKeys.baud.name] as int;
-      if(SerialParse.validBaudRates.contains(baudRate)) {
+      final baudRate = canMap[ConfigCanKeys.baud.name] as int;
+      if (validBaudRates.contains(baudRate)) {
         configData.baudRate = baudRate;
-      }
-      else {
+      } else {
         throw Exception();
       }
-    } catch(e) {
-      throw const FormatException("invalid serial baudrate");
+    } catch (e) {
+      throw const FormatException("invalid CAN baudrate");
     }
 
     try {
-      final period = serialMap[ConfigSerialKeys.period.name] as int;
-      if(period > 0 && period <= SerialParse.maxPeriod) {
+      final period = canMap[ConfigCanKeys.period.name] as int;
+      if (period > 0 && period <= CanInfo.maxPeriod) {
         configData.commPeriod = period;
-      }
-      else {
+      } else {
         throw Exception();
       }
-    } catch(e) {
-      throw const FormatException("invalid serial period");
+    } catch (e) {
+      throw const FormatException("invalid CAN period");
     }
 
     try {
-      final deviceId = serialMap[ConfigSerialKeys.device.name] as int;
-      if(deviceId >= SerialParse.deviceIdMin && deviceId <= SerialParse.deviceIdMax) {
-        configData._deviceId = deviceId;
-      }
-      else {
+      final hostId = canMap[ConfigCanKeys.hostId.name] as int;
+      if (hostId > 0 && hostId <= CanInfo.extendedIdMax) {
+        configData.hostId = hostId;
+      } else {
         throw Exception();
       }
-    } catch(e) {
-      throw const FormatException("invalid device id");
+    } catch (e) {
+      throw const FormatException("invalid CAN host ID");
+    }
+
+    try {
+      final deviceId = canMap[ConfigCanKeys.deviceId.name] as int;
+      if (deviceId > 0 && deviceId <= CanInfo.extendedIdMax) {
+        configData.deviceId = deviceId;
+      } else {
+        throw Exception();
+      }
+    } catch (e) {
+      throw const FormatException("invalid CAN device ID");
+    }
+
+    try {
+      configData.stateSelect =
+          Set<int>.from(canMap[ConfigCanKeys.stateSelect.name]);
+    } catch (e) {
+      throw const FormatException("invalid CAN state select");
     }
 
     // parse command settings
@@ -253,8 +286,7 @@ class ConfigData {
     var statusMap = <String, dynamic>{};
     try {
       statusMap = Map<String, dynamic>.from(configMap[ConfigKeys.status.name]);
-    }
-    catch(e) {
+    } catch (e) {
       throw const FormatException("invalid status settings");
     }
     configData.status = BitStatus.fromMap(statusMap);
